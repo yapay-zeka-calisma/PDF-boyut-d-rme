@@ -1,0 +1,72 @@
+name: Expo Update
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - .requests/**
+      - .github/**
+      - .claude/**
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: update-readme
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: 📦 Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 25
+          cache: 'pnpm'
+
+      - name: 🏗 Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 📦 Install dependencies
+        run: pnpm i
+
+      - name: 🚀 Create preview
+        uses: expo/expo-github-action/preview@v8
+        id: preview
+        with:
+          command: eas update --auto --non-interactive
+          comment: false
+          
+      - name: Update README
+        run: |
+          PREVIEW_URL="${{ steps.preview.outputs.link }}"
+          if [[ -z "$PREVIEW_URL" ]]; then
+            echo "No preview URL found, skipping README update"
+            exit 0
+          fi
+          echo "Updating README with URL: $PREVIEW_URL"
+          ESCAPED_URL=$(printf '%s\n' "$PREVIEW_URL" | sed 's/[&/\]/\\&/g')
+          sed -i "s|\[Mobil\](.*)|[Mobil](${ESCAPED_URL})|g" README.md
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add README.md
+            git commit -m "chore: update latest preview link [skip ci]"
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi
